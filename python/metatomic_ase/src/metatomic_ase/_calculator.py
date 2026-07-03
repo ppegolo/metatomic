@@ -212,10 +212,10 @@ class MetatomicCalculator(ase.calculators.calculator.Calculator):
             the options in the model's ``supported_device`` in order.
         :param variants: dictionary mapping output names to a variant that should be
             used for the calculations (e.g. ``{"energy": "PBE"}``). If ``"energy"`` is
-            set to a variant also the uncertainty and non conservative outputs will be
-            taken from this variant. This behaviour can be overriden by setting the
-            corresponding keys explicitly to ``None`` or to another value (e.g.
-            ``{"energy_uncertainty": "r2scan"}``).
+            set to a variant also the uncertainty, energy ensemble, and non conservative
+            outputs will be taken from this variant. This behaviour can be overriden by
+            setting the corresponding keys explicitly to ``None`` or to another value
+            (e.g. ``{"energy_uncertainty": "r2scan"}``).
         :param non_conservative: controls which outputs are obtained directly from the
             model rather than via autograd on the energy. Accepted values are:
 
@@ -314,6 +314,7 @@ class MetatomicCalculator(ase.calculators.calculator.Calculator):
             for key in [
                 "energy",
                 "energy_uncertainty",
+                "energy_ensemble",
                 "non_conservative_force",
                 "non_conservative_stress",
             ]
@@ -355,6 +356,17 @@ class MetatomicCalculator(ase.calculators.calculator.Calculator):
             )
         else:
             self._energy_uq_key = None
+
+        has_energy_ensemble = any(
+            "energy_ensemble" == key or key.startswith("energy_ensemble/")
+            for key in outputs.keys()
+        )
+        if has_energy_ensemble:
+            self._energy_ensemble_key = pick_output(
+                "energy_ensemble", outputs, resolved_variants["energy_ensemble"]
+            )
+        else:
+            self._energy_ensemble_key = None
 
         self._nc_forces = non_conservative in (True, "forces")
         self._nc_stress = non_conservative in (True, "stress")
@@ -969,6 +981,140 @@ class MetatomicCalculator(ase.calculators.calculator.Calculator):
             for key, value in results_as_numpy_arrays.items():
                 results_as_numpy_arrays[key] = value[0]
         return results_as_numpy_arrays
+
+    def compute_energy_ensemble_gradients(
+        self,
+        atoms: ase.Atoms,
+        *,
+        compute_forces: bool = True,
+        compute_stress: bool = True,
+    ) -> Dict[str, np.ndarray]:
+        """
+        Compute the ensemble of conservative forces and/or stress associated with this
+        calculator's ``energy_ensemble`` output, for a single structure.
+
+        This computes the full Jacobian of the (system-level) ``energy_ensemble`` output
+        with respect to atomic positions and/or strain, giving one force/stress tensor
+        per ensemble member. This is useful to propagate an ensemble-based uncertainty
+        estimate on the energy down to forces and stress.
+
+        Unlike :py:meth:`run_model` and :py:meth:`compute_energy`, this function only
+        accepts a single :py:class:`ase.Atoms`, not a list.
+
+        :param atoms: :py:class:`ase.Atoms` on which to run the calculation.
+        :param compute_forces: whether to compute the forces ensemble.
+        :param compute_stress: whether to compute the stress ensemble. This is only
+            meaningful for structures that are periodic in all directions.
+        :return: a dictionary with the following keys:
+
+            - ``"forces"``: (if ``compute_forces=True``) the forces ensemble, as a
+              ``(n_atoms, 3, n_ensemble)`` array, in eV/Angstrom;
+            - ``"stress"``: (if ``compute_stress=True``) the stress ensemble, as a
+              ``(3, 3, n_ensemble)`` array (full tensor, not Voigt notation), in
+              eV/Angstrom^3.
+        """
+        if not isinstance(atoms, ase.Atoms):
+            raise TypeError(
+                "`compute_energy_ensemble_gradients` only supports a single "
+                f"`ase.Atoms`, got {type(atoms)}"
+            )
+
+        if self._energy_ensemble_key is None:
+            raise ValueError(
+                "this calculator does not support energy ensemble gradients because "
+                "the underlying model does not have an 'energy_ensemble' output"
+            )
+
+        if not compute_forces and not compute_stress:
+            raise ValueError(
+                "at least one of `compute_forces` or `compute_stress` must be True"
+            )
+
+        if compute_stress and not atoms.pbc.all():
+            warnings.warn(
+                "stress requested but likely to be wrong, since the system is not "
+                "periodic in all directions",
+                stacklevel=2,
+            )
+
+        types, positions, cell, pbc = _ase_to_torch_data(
+            atoms=atoms, dtype=self._dtype, device=self._device
+        )
+
+        ensemble_outputs = {
+            self._energy_ensemble_key: ModelOutput(
+                unit="eV", sample_kind="system", explicit_gradients=[]
+            )
+        }
+        if self._energy_key is not None:
+            # some models require the base "energy" output to be requested
+            # alongside "energy_ensemble"; this is cheap to compute (it is an
+            # intermediate step of the ensemble itself) and its value is unused here
+            ensemble_outputs[self._energy_key] = ModelOutput(
+                unit="eV", sample_kind="system", explicit_gradients=[]
+            )
+        run_options = ModelEvaluationOptions(
+            length_unit="angstrom",
+            outputs=ensemble_outputs,
+            selected_atoms=None,
+        )
+
+        def _forward(*inputs: torch.Tensor) -> torch.Tensor:
+            if compute_forces and compute_stress:
+                new_positions, strain = inputs
+            elif compute_forces:
+                (new_positions,) = inputs
+                strain = None
+            else:
+                (strain,) = inputs
+                new_positions = positions
+
+            if strain is not None:
+                new_positions = new_positions @ strain
+                new_cell = cell @ strain
+            else:
+                new_cell = cell
+
+            new_system = System(types, new_positions, new_cell, pbc)
+            # `self._nl_calculators.compute` registers the neighbors as a function of
+            # `new_system.positions`/`new_system.cell` automatically (same as
+            # `calculate()`/`compute_energy()`), so no manual autograd wiring is
+            # needed here.
+            [new_system] = self._nl_calculators.compute(systems=[new_system])
+
+            outputs = self._model(
+                [new_system],
+                run_options,
+                check_consistency=self.parameters["check_consistency"],
+            )
+            return outputs[self._energy_ensemble_key].block().values.squeeze(0)
+
+        jacobian_inputs = []
+        if compute_forces:
+            jacobian_inputs.append(positions)
+        strain = torch.eye(3, device=self._device, dtype=self._dtype)
+        if compute_stress:
+            jacobian_inputs.append(strain)
+
+        jacobians = torch.autograd.functional.jacobian(
+            _forward, tuple(jacobian_inputs), vectorize=False
+        )
+        if not isinstance(jacobians, tuple):
+            jacobians = (jacobians,)
+
+        results: Dict[str, np.ndarray] = {}
+        idx = 0
+        if compute_forces:
+            forces = -jacobians[idx].detach().cpu().double().numpy()
+            # [n_ensemble, n_atoms, 3] -> [n_atoms, 3, n_ensemble]
+            results["forces"] = forces.transpose(1, 2, 0)
+            idx += 1
+        if compute_stress:
+            stress = jacobians[idx].detach().cpu().double().numpy()
+            # [n_ensemble, 3, 3] -> [3, 3, n_ensemble]
+            results["stress"] = stress.transpose(1, 2, 0) / atoms.cell.volume
+
+        return results
 
     def _ase_properties_to_metatensor_outputs(
         self,

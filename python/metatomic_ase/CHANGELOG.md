@@ -6,9 +6,14 @@ follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased](https://github.com/metatensor/metatomic/)
 
-<!-- Possible sections
 ### Added
 
+- `MetatomicCalculator` now resolves and exposes an `energy_ensemble` output
+  (respecting `variants`), and gained a new `compute_energy_ensemble_gradients()`
+  method computing conservative forces/stress ensembles as the Jacobian of the
+  `energy_ensemble` output with respect to positions/strain.
+
+<!-- Possible sections
 ### Fixed
 
 ### Changed
