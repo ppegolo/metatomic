@@ -344,7 +344,7 @@ def fcc_bulk() -> Atoms:
 def test_quadrature_normalization():
     """Verify normalization and determinant signs of the quadrature."""
     R, w = _get_quadrature(lebedev_order=11, n_rotations=5, include_inversion=True)
-    assert np.isclose(np.sum(w), 1.0)
+    np.testing.assert_allclose(np.sum(w), 1.0)
     dets = np.linalg.det(R)
     assert np.all(np.isin(np.round(dets).astype(int), [-1, 1]))
 
@@ -365,7 +365,7 @@ def test_energy_L_components_removed(
     e = dimer.get_potential_energy()
     E_true = float(np.sum(dimer.positions**2))
     if expect_removed:
-        assert np.isclose(e, E_true + a[0], atol=1e-10)
+        np.testing.assert_allclose(e, E_true + a[0], atol=1e-10)
     else:
         assert not np.isclose(e, E_true + a[0], atol=1e-10)
 
@@ -382,7 +382,7 @@ def test_force_backrotation_exact(dimer: Atoms) -> None:
     F = dimer.get_forces()
     expected_F = dimer.get_positions()
     expected_F -= np.mean(expected_F, axis=0)
-    assert np.allclose(F, expected_F, atol=1e-12)
+    np.testing.assert_allclose(F, expected_F, atol=1e-12)
 
 
 def test_tensorial_L2_force_cancellation(dimer: Atoms) -> None:
@@ -400,7 +400,7 @@ def test_tensorial_L2_force_cancellation(dimer: Atoms) -> None:
         F = dimer.get_forces()
         expected_F = dimer.get_positions()
         expected_F -= np.mean(expected_F, axis=0)
-        assert np.allclose(F, expected_F, atol=1e-10)
+        np.testing.assert_allclose(F, expected_F, atol=1e-10)
 
 
 def test_stress_isotropization(fcc_bulk: Atoms) -> None:
@@ -419,7 +419,7 @@ def test_stress_isotropization(fcc_bulk: Atoms) -> None:
     fcc_bulk.get_forces()
 
     iso = np.trace(S) / 3.0
-    assert np.isclose(iso, 5.0, atol=1e-10)
+    np.testing.assert_allclose(iso, 5.0, atol=1e-10)
 
 
 def test_cancellation_vs_Lmax(dimer: Atoms) -> None:
@@ -444,7 +444,7 @@ def test_cancellation_vs_Lmax(dimer: Atoms) -> None:
     e3 = dimer.get_potential_energy()
 
     assert not np.isclose(e0, E_true, atol=1e-10)
-    assert np.isclose(e3, E_true, atol=1e-10)
+    np.testing.assert_allclose(e3, E_true, atol=1e-10)
 
 
 def test_joint_energy_force_consistency(dimer: Atoms) -> None:
@@ -460,8 +460,8 @@ def test_joint_energy_force_consistency(dimer: Atoms) -> None:
     e = dimer.get_potential_energy()
     expected_F = dimer.get_positions()
     expected_F -= np.mean(expected_F, axis=0)
-    assert np.isclose(e, np.sum(dimer.positions**2) + 1.0, atol=1e-10)
-    assert np.allclose(f, expected_F, atol=1e-12)
+    np.testing.assert_allclose(e, np.sum(dimer.positions**2) + 1.0, atol=1e-10)
+    np.testing.assert_allclose(f, expected_F, atol=1e-12)
 
 
 def test_rotate_atoms_preserves_geometry(tmp_path):
@@ -474,15 +474,15 @@ def test_rotate_atoms_preserves_geometry(tmp_path):
 
     rotated = _rotate_atoms(atoms, R)[0]
     # Positions should now align along y
-    assert np.allclose(
+    np.testing.assert_allclose(
         rotated.positions[1] - rotated.positions[0], [0, 1, 0], atol=1e-12
     )
     # Cell rotated
-    assert np.allclose(rotated.cell[0], [0, 1, 0], atol=1e-12)
+    np.testing.assert_allclose(rotated.cell[0], [0, 1, 0], atol=1e-12)
     # Distances preserved
     d0 = atoms.get_distance(0, 1)
     d1 = rotated.get_distance(0, 1)
-    assert np.isclose(d0, d1, atol=1e-12)
+    np.testing.assert_allclose(d0, d1, atol=1e-12)
 
 
 def test_choose_quadrature_rules():
@@ -496,17 +496,20 @@ def test_choose_quadrature_rules():
 def test_get_quadrature_properties():
     """Check properties of the quadrature returned by _get_quadrature."""
     R, w = _get_quadrature(lebedev_order=11, n_rotations=5, include_inversion=False)
-    assert np.isclose(np.sum(w), 1.0)
-    assert np.allclose([np.dot(r.T, r) for r in R], np.eye(3), atol=1e-12)
-    assert np.allclose(np.linalg.det(R), 1.0, atol=1e-12)
+    np.testing.assert_allclose(np.sum(w), 1.0)
+    expected_identities = np.broadcast_to(np.eye(3), (len(R), 3, 3))
+    np.testing.assert_allclose(
+        [np.dot(r.T, r) for r in R], expected_identities, atol=1e-12
+    )
+    np.testing.assert_allclose(np.linalg.det(R), 1.0, atol=1e-12)
 
     R_inv, w_inv = _get_quadrature(
         lebedev_order=11, n_rotations=5, include_inversion=True
     )
-    assert len(R_inv) == 2 * len(R)
+    np.testing.assert_equal(len(R_inv), 2 * len(R))
     dets = np.linalg.det(R_inv)
-    assert np.all(np.isin(np.sign(dets).astype(int), [-1, 1]))
-    assert np.isclose(np.sum(w_inv), 1.0)
+    np.testing.assert_allclose(np.abs(dets), 1.0, rtol=1e-6, atol=1e-12)
+    np.testing.assert_allclose(np.sum(w_inv), 1.0)
 
 
 def test_compute_rotational_average_identity():
@@ -520,9 +523,9 @@ def test_compute_rotational_average_identity():
         "stress": np.array([np.eye(3), 2 * np.eye(3), 3 * np.eye(3)]),
     }
     out = _compute_rotational_average(results, R, w, False)
-    assert np.isclose(out["energy"], np.mean(results["energy"]))
-    assert np.allclose(out["forces"], np.mean(results["forces"], axis=0))
-    assert np.allclose(out["stress"], np.mean(results["stress"], axis=0))
+    np.testing.assert_allclose(out["energy"], np.mean(results["energy"]))
+    np.testing.assert_allclose(out["forces"], np.mean(results["forces"], axis=0))
+    np.testing.assert_allclose(out["stress"], np.mean(results["stress"], axis=0))
 
     out = _compute_rotational_average(results, R, w, True)
     assert "energy_rot_std" in out
@@ -551,17 +554,17 @@ def test_average_over_fcc_group(fcc_bulk: Atoms):
     out = _average_over_group(results, Q_list, P_list)
 
     # Energy must be unchanged
-    assert np.isclose(out["energy"], energy)
+    np.testing.assert_allclose(out["energy"], energy)
 
     # Forces must average to zero by symmetry
     F_pg = out["forces"]
-    assert np.allclose(F_pg, np.zeros_like(F_pg))
+    np.testing.assert_allclose(F_pg, np.zeros_like(F_pg))
 
     S_pg = out["stress"]
 
     # The averaged stress must be isotropic: S_pg = (trace/3)*I
     iso = np.trace(S_pg) / 3.0
-    assert np.allclose(S_pg, np.eye(3) * iso, atol=1e-8)
+    np.testing.assert_allclose(S_pg, np.eye(3) * iso, atol=1e-8)
 
 
 def test_space_group_average_non_periodic():
@@ -588,8 +591,8 @@ def test_space_group_average_non_periodic():
     out = _average_over_group(results, Q_list, P_list)
 
     # Energy must be unchanged
-    assert np.isclose(out["energy"], energy)
+    np.testing.assert_allclose(out["energy"], energy)
 
     # Forces must be unchanged
     F_pg = out["forces"]
-    assert np.allclose(F_pg, forces)
+    np.testing.assert_allclose(F_pg, forces)

@@ -91,17 +91,21 @@ def check_against_ase_lj(atoms, calculator, dtype):
     else:
         raise ValueError(f"unsupported dtype: {dtype}")
 
-    assert np.allclose(
+    np.testing.assert_allclose(
         ref.get_potential_energy(), atoms.get_potential_energy(), atol=atol, rtol=rtol
     )
-    assert np.allclose(
+    np.testing.assert_allclose(
         ref.get_potential_energies(),
         atoms.get_potential_energies(),
         atol=atol,
         rtol=rtol,
     )
-    assert np.allclose(ref.get_forces(), atoms.get_forces(), atol=atol, rtol=rtol)
-    assert np.allclose(ref.get_stress(), atoms.get_stress(), atol=atol, rtol=rtol)
+    np.testing.assert_allclose(
+        ref.get_forces(), atoms.get_forces(), atol=atol, rtol=rtol
+    )
+    np.testing.assert_allclose(
+        ref.get_stress(), atoms.get_stress(), atol=atol, rtol=rtol
+    )
 
 
 def _set_model_dtype(model, dtype):
@@ -209,10 +213,10 @@ def test_get_properties(model, atoms, non_conservative):
 
     properties = atoms.get_properties(["energy", "energies", "forces", "stress"])
 
-    assert np.all(properties["energies"] == atoms.get_potential_energies())
-    assert np.all(properties["energy"] == atoms.get_potential_energy())
-    assert np.all(properties["forces"] == atoms.get_forces())
-    assert np.all(properties["stress"] == atoms.get_stress())
+    np.testing.assert_allclose(properties["energies"], atoms.get_potential_energies())
+    np.testing.assert_allclose(properties["energy"], atoms.get_potential_energy())
+    np.testing.assert_allclose(properties["forces"], atoms.get_forces())
+    np.testing.assert_allclose(properties["stress"], atoms.get_stress())
 
     # check that we can use all of the `.get_xxx` functions independantly
     atoms.calc = MetatomicCalculator(
@@ -281,7 +285,7 @@ def test_run_model(tmpdir, model, atoms):
     # check overall prediction
     requested = {"energy": ModelOutput(sample_kind="system")}
     outputs = calculator.run_model(atoms, outputs=requested)
-    assert np.allclose(
+    np.testing.assert_allclose(
         ref.get_potential_energy(), outputs["energy"].block().values.item()
     )
 
@@ -294,8 +298,8 @@ def test_run_model(tmpdir, model, atoms):
     second_energies = outputs["energy"].block().values.numpy().reshape(-1)
 
     expected = ref.get_potential_energies()
-    assert np.allclose(expected[first_mask], first_energies)
-    assert np.allclose(expected[second_mask], second_energies)
+    np.testing.assert_allclose(expected[first_mask], first_energies)
+    np.testing.assert_allclose(expected[second_mask], second_energies)
 
     # check total energy
     requested = {"energy": ModelOutput(sample_kind="system")}
@@ -306,12 +310,12 @@ def test_run_model(tmpdir, model, atoms):
     second_energies = outputs["energy"].block().values.numpy().reshape(-1)
 
     expected = ref.get_potential_energy()
-    assert np.allclose(expected, first_energies + second_energies)
+    np.testing.assert_allclose(expected, first_energies + second_energies)
 
     # check batched prediction
     requested = {"energy": ModelOutput(sample_kind="system")}
     outputs = calculator.run_model([atoms, atoms], outputs=requested)
-    assert np.allclose(
+    np.testing.assert_allclose(
         ref.get_potential_energy(), outputs["energy"].block().values[[0]]
     )
 
@@ -322,10 +326,10 @@ def test_run_model(tmpdir, model, atoms):
         "non_conservative_stress": ModelOutput(sample_kind="system"),
     }
     outputs = calculator.run_model([atoms, atoms], outputs=requested)
-    assert np.allclose(
+    np.testing.assert_allclose(
         ref.get_potential_energy(), outputs["energy"].block().values[[0]]
     )
-    assert np.allclose(
+    np.testing.assert_allclose(
         ref.get_potential_energy(), outputs["energy"].block().values[[1]]
     )
     assert "non_conservative_force" in outputs
@@ -355,47 +359,47 @@ def test_compute_energy(tmpdir, model, atoms, non_conservative, per_atom):
     results = calculator.compute_energy(atoms, per_atom=per_atom)
     if per_atom:
         energies = results["energies"]
-        assert np.allclose(ref.get_potential_energies(), energies)
-    assert np.allclose(ref.get_potential_energy(), results["energy"])
+        np.testing.assert_allclose(ref.get_potential_energies(), energies)
+    np.testing.assert_allclose(ref.get_potential_energy(), results["energy"])
 
     results = calculator.compute_energy(
         atoms, compute_forces_and_stresses=True, per_atom=per_atom
     )
-    assert np.allclose(ref.get_potential_energy(), results["energy"])
+    np.testing.assert_allclose(ref.get_potential_energy(), results["energy"])
     if not non_conservative:
-        assert np.allclose(ref.get_forces(), results["forces"])
-        assert np.allclose(
+        np.testing.assert_allclose(ref.get_forces(), results["forces"])
+        np.testing.assert_allclose(
             ref.get_stress(), _full_3x3_to_voigt_6_stress(results["stress"])
         )
     if per_atom:
-        assert np.allclose(ref.get_potential_energies(), results["energies"])
+        np.testing.assert_allclose(ref.get_potential_energies(), results["energies"])
 
     results = calculator.compute_energy([atoms, atoms], per_atom=per_atom)
-    assert np.allclose(ref.get_potential_energy(), results["energy"][0])
-    assert np.allclose(ref.get_potential_energy(), results["energy"][1])
+    np.testing.assert_allclose(ref.get_potential_energy(), results["energy"][0])
+    np.testing.assert_allclose(ref.get_potential_energy(), results["energy"][1])
     if per_atom:
-        assert np.allclose(ref.get_potential_energies(), results["energies"][0])
-        assert np.allclose(ref.get_potential_energies(), results["energies"][1])
+        np.testing.assert_allclose(ref.get_potential_energies(), results["energies"][0])
+        np.testing.assert_allclose(ref.get_potential_energies(), results["energies"][1])
 
     results = calculator.compute_energy(
         [atoms, atoms],
         compute_forces_and_stresses=True,
         per_atom=per_atom,
     )
-    assert np.allclose(ref.get_potential_energy(), results["energy"][0])
-    assert np.allclose(ref.get_potential_energy(), results["energy"][1])
+    np.testing.assert_allclose(ref.get_potential_energy(), results["energy"][0])
+    np.testing.assert_allclose(ref.get_potential_energy(), results["energy"][1])
     if not non_conservative:
-        assert np.allclose(ref.get_forces(), results["forces"][0])
-        assert np.allclose(ref.get_forces(), results["forces"][1])
-        assert np.allclose(
+        np.testing.assert_allclose(ref.get_forces(), results["forces"][0])
+        np.testing.assert_allclose(ref.get_forces(), results["forces"][1])
+        np.testing.assert_allclose(
             ref.get_stress(), _full_3x3_to_voigt_6_stress(results["stress"][0])
         )
-        assert np.allclose(
+        np.testing.assert_allclose(
             ref.get_stress(), _full_3x3_to_voigt_6_stress(results["stress"][1])
         )
     if per_atom:
-        assert np.allclose(ref.get_potential_energies(), results["energies"][0])
-        assert np.allclose(ref.get_potential_energies(), results["energies"][1])
+        np.testing.assert_allclose(ref.get_potential_energies(), results["energies"][0])
+        np.testing.assert_allclose(ref.get_potential_energies(), results["energies"][1])
 
     atoms_no_pbc = atoms.copy()
     atoms_no_pbc.pbc = [False, False, False]
@@ -465,7 +469,19 @@ def test_dtype_device(tmpdir, model, atoms, device, dtype):
     atoms.calc = MetatomicCalculator(
         path, check_consistency=True, device=device, uncertainty_threshold=None
     )
-    assert np.allclose(atoms.get_potential_energy(), expected)
+
+    if dtype == "float32":
+        rtol = 1e-5
+        atol = 1e-5
+    elif dtype == "float64":
+        rtol = 1e-5
+        atol = 1e-8
+    else:
+        raise ValueError(f"unsupported dtype: {dtype}")
+
+    np.testing.assert_allclose(
+        atoms.get_potential_energy(), expected, atol=atol, rtol=rtol
+    )
 
 
 def test_model_with_extensions(tmpdir, atoms, capfd):
@@ -520,7 +536,7 @@ model.save("{model_path}", collect_extensions="{extensions_directory}")
         uncertainty_threshold=None,
     )
 
-    assert np.allclose(ref.get_potential_energy(), atoms.get_potential_energy())
+    np.testing.assert_allclose(ref.get_potential_energy(), atoms.get_potential_energy())
 
 
 class MultipleOutputModel(torch.nn.Module):
@@ -677,17 +693,17 @@ def test_variant_default(atoms, model, default_output):
     stress_variant = atoms_variant.get_stress()
 
     if default_output == "energy":
-        assert np.allclose(energy, energy_variant)
-        assert np.allclose(2.0 * forces, forces_variant)
-        assert np.allclose(2.0 * stress, stress_variant)
+        np.testing.assert_allclose(energy, energy_variant)
+        np.testing.assert_allclose(2.0 * forces, forces_variant)
+        np.testing.assert_allclose(2.0 * stress, stress_variant)
     elif default_output == "non_conservative_force":
-        assert np.allclose(2.0 * energy, energy_variant)
-        assert np.allclose(forces, forces_variant)
-        assert np.allclose(2.0 * stress, stress_variant)
+        np.testing.assert_allclose(2.0 * energy, energy_variant)
+        np.testing.assert_allclose(forces, forces_variant)
+        np.testing.assert_allclose(2.0 * stress, stress_variant)
     elif default_output == "non_conservative_stress":
-        assert np.allclose(2.0 * energy, energy_variant)
-        assert np.allclose(2.0 * forces, forces_variant)
-        assert np.allclose(stress, stress_variant)
+        np.testing.assert_allclose(2.0 * energy, energy_variant)
+        np.testing.assert_allclose(2.0 * forces, forces_variant)
+        np.testing.assert_allclose(stress, stress_variant)
 
 
 @pytest.mark.parametrize("force_is_None", [True, False])
@@ -899,7 +915,7 @@ def test_additional_input(atoms):
             # ase velocity is in (eV/u)^(1/2) and we requested A/fs
             expected /= ase.units.Angstrom / ase.units.fs
 
-        assert np.allclose(values, expected)
+        np.testing.assert_allclose(values, expected)
 
 
 class SpinEnergyModel(torch.nn.Module):

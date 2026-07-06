@@ -746,8 +746,8 @@ def test_dftd3_non_conservative_save_and_reload(tmp_path, model, atoms):
         outputs["non_conservative_force"].block().values.squeeze(-1).detach().numpy()
     )
 
-    assert np.isclose(reloaded_energy, original_energy, rtol=1e-10, atol=1e-12)
-    assert np.allclose(reloaded_forces, original_forces, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(reloaded_energy, original_energy, rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(reloaded_forces, original_forces, rtol=1e-10, atol=1e-12)
 
     outputs, _, _ = _eval(
         reloaded,
